@@ -58,4 +58,12 @@ under `supplier`, and a sensor per meter appears: `sensor.<device>_yasno_{day,ni
   `sensor.telegram_<name>_{yasno,komunalka}_last_{submission,attempt}`.
 - Dry runs against the real bots pass for both (all 6 Komunalka items, YASNO with previous 15000/7514). No real
   submission has been made by the integration yet. Schedule: `script.lichylnyky_peredaty_pokazy` + automations in
-  `../utility-meters/` (first real runs: water 2026-10-25, YASNO 2026-10-30). Next: GitHub + HACS.
+  `../utility-meters/` (first real runs: water 2026-10-25, YASNO 2026-10-30).
+- 2026-10-20: public at https://github.com/friedpuppet/ha-meter-bots, release v0.2.0, installed on HA through HACS
+  (custom repository, HACS id `1426650776`; the earlier copy is in `/config/meter_bots-copy.bak-20261020-072909.tgz`).
+  **Updating**: release (bump `manifest.json` + `pyproject.toml`), then WS `hacs/repository/download` with
+  `repository: "1426650776"`, `version: "vX.Y.Z"`, then `ha core check` + `ha core restart`. Push with the PAT
+  `~/.config/github/token-grid-load-shedding` (extraheader, as in the sibling repos).
+- **The repo is public: no personal data in it.** Tests, README and strings use made-up serials (1000001–1000004),
+  account 10000000001, Telegram id 123456789 and a «Тестова» address. Real ones belong in `../AGENTS.md` only. The
+  history was restarted on publishing; the old local branch `private-history` has the real data, never push it.

@@ -1,0 +1,29 @@
+submit:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: meter_bots
+    bot:
+      required: true
+      selector:
+        select:
+          options:
+            - yasno
+            - komunalka
+          translation_key: bot
+    readings:
+      required: true
+      example: '{"1000001": 222.01, "1000003": 1008.107}'
+      selector:
+        object:
+    dry_run:
+      default: false
+      selector:
+        boolean:
+    max_increase:
+      selector:
+        number:
+          min: 0
+          max: 100000
+          mode: box

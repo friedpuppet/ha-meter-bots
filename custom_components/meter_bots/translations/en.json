@@ -1,0 +1,145 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Telegram account",
+        "description": "The integration talks to the suppliers' bots from your own Telegram account. Create the API id and hash at my.telegram.org → API development tools. Telegram then sends a login code to your Telegram app.",
+        "data": {
+          "api_id": "API id",
+          "api_hash": "API hash",
+          "phone": "Phone number"
+        },
+        "data_description": {
+          "phone": "In international format, e.g. +380501234567."
+        }
+      },
+      "code": {
+        "title": "Login code",
+        "description": "Enter the code Telegram has just sent to {phone}. Telegram says it went: {delivery}.",
+        "data": {
+          "code": "Code"
+        }
+      },
+      "password": {
+        "title": "Two-step verification",
+        "description": "This account has a cloud password. Enter it to finish logging in.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Log in again",
+        "description": "The Telegram session for {phone} no longer works (revoked in Settings → Devices, or expired). Submit to log in again."
+      },
+      "method": {
+        "title": "How to log in",
+        "description": "Telegram sometimes doesn't deliver login codes to new third-party apps. Logging in by QR code needs no code.",
+        "menu_options": {
+          "qr": "Scan a QR code with the phone",
+          "send_code": "Send a login code to the Telegram app"
+        }
+      },
+      "qr": {
+        "title": "Scan the QR code",
+        "description": "On the phone open Telegram → Settings → Devices → Link Desktop Device and scan this code. Then press Submit. The code is valid for about 30 seconds; if it expires, Submit shows a new one.",
+        "data": {
+          "qr": "QR code"
+        }
+      }
+    },
+    "error": {
+      "invalid_api_id": "Telegram rejected the API id / hash.",
+      "invalid_phone": "Telegram doesn't know this phone number.",
+      "invalid_code": "Wrong code.",
+      "code_expired": "The code expired; a new one has been sent.",
+      "invalid_password": "Wrong password.",
+      "flood_wait": "Telegram asks to wait before requesting another code. Try again later.",
+      "cannot_connect": "Could not reach Telegram.",
+      "payment_required": "Telegram wants a payment (Premium) before it sends a login code to this number to a third-party app. Log in from an official app first, or try later.",
+      "email_required": "Telegram requires a login email for this account before it sends codes to third-party apps. Set up a login email in Telegram → Settings → Privacy and Security, then try again.",
+      "qr_expired": "The QR code expired before it was scanned. Here is a new one.",
+      "qr_not_scanned": "Telegram hasn't confirmed the scan yet. Scan the code, then press Submit."
+    },
+    "abort": {
+      "already_configured": "This Telegram account is already set up.",
+      "reauth_successful": "Logged in again.",
+      "wrong_account": "That's a different Telegram account than the one this entry belongs to."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "yasno_account": "YASNO account number",
+          "komunalka_address": "Комуналка address"
+        },
+        "data_description": {
+          "yasno_account": "Особовий рахунок, as you type it into @Yasnoonlinebot.",
+          "komunalka_address": "Only needed if @komunalkaua_bot lists more than one address: a part of the address button's text."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "yasno_last_submission": {
+        "name": "YASNO last submission"
+      },
+      "yasno_last_attempt": {
+        "name": "YASNO last attempt",
+        "state": {
+          "ok": "OK",
+          "failed": "Failed",
+          "dry_run": "Dry run"
+        }
+      },
+      "komunalka_last_submission": {
+        "name": "Комуналка last submission"
+      },
+      "komunalka_last_attempt": {
+        "name": "Комуналка last attempt",
+        "state": {
+          "ok": "OK",
+          "failed": "Failed",
+          "dry_run": "Dry run"
+        }
+      }
+    }
+  },
+  "selector": {
+    "bot": {
+      "options": {
+        "yasno": "YASNO (electricity)",
+        "komunalka": "Комуналка (water)"
+      }
+    }
+  },
+  "services": {
+    "submit": {
+      "name": "Submit readings",
+      "description": "Send meter readings to a supplier's bot. Every step checks the bot's answer; anything unexpected stops the run. Returns what was sent and the conversation.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Telegram account",
+          "description": "Only needed with more than one account."
+        },
+        "bot": {
+          "name": "Bot",
+          "description": "yasno: readings {\"day\": …, \"night\": …} in kWh (whole numbers are sent). komunalka: readings by meter serial number in m³ (two decimals, rounded down)."
+        },
+        "readings": {
+          "name": "Readings",
+          "description": "For yasno {\"day\": 15006, \"night\": 7514}; for komunalka {\"1000001\": 222.01, …}."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Go through the conversation up to the point where the number would be sent, and stop there."
+        },
+        "max_increase": {
+          "name": "Largest increase",
+          "description": "A reading may exceed the bot's previous one by at most this much. Defaults: 3000 kWh (YASNO), 50 m³ (Комуналка)."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "domain": "meter_bots",
+  "name": "Meter Bots",
+  "codeowners": ["@friedpuppet"],
+  "config_flow": true,
+  "documentation": "https://github.com/friedpuppet/ha-meter-bots",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/friedpuppet/ha-meter-bots/issues",
+  "loggers": ["telethon"],
+  "requirements": ["telethon==1.45.0"],
+  "version": "0.2.0"
+}

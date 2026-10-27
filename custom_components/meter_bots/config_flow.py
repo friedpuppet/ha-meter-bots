@@ -19,12 +19,13 @@ from telethon.errors import (
     PhoneNumberInvalidError,
     SessionPasswordNeededError,
 )
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import selector
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession, async_get_clientsession
 
 from .client import make_client
 from .const import (
@@ -32,6 +33,9 @@ from .const import (
     CONF_API_ID,
     CONF_CODE,
     CONF_KOMUNALKA_ADDRESS,
+    CONF_KTE_EMAIL,
+    CONF_KTE_PASSWORD,
+    CONF_KVK_ACCOUNT,
     CONF_PASSWORD,
     CONF_PHONE,
     CONF_SESSION,
@@ -44,6 +48,8 @@ from .const import (
     DEFAULT_YASNO_CITY,
     DOMAIN,
 )
+from .kte_api import KteCabinet, KteError
+from .kvk_api import KvkApi, KvkRejected, KvkUnavailable
 from .yasno_api import YasnoApi, YasnoRejected, YasnoUnavailable, mask_matches
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,11 +75,21 @@ YASNO_ADDRESS = (CONF_YASNO_STREET, CONF_YASNO_HOUSE, CONF_YASNO_APARTMENT)
 
 
 def _options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
-    keys = (CONF_YASNO_ACCOUNT, CONF_YASNO_CITY, *YASNO_ADDRESS, CONF_KOMUNALKA_ADDRESS)
+    keys = (
+        CONF_YASNO_ACCOUNT,
+        CONF_YASNO_CITY,
+        *YASNO_ADDRESS,
+        CONF_KOMUNALKA_ADDRESS,
+        CONF_KVK_ACCOUNT,
+        CONF_KTE_EMAIL,
+        CONF_KTE_PASSWORD,
+    )
     suggested = {CONF_YASNO_CITY: DEFAULT_YASNO_CITY, **defaults}
     return vol.Schema(
         {
-            vol.Optional(key, description={"suggested_value": suggested.get(key)}): selector.TextSelector()
+            vol.Optional(key, description={"suggested_value": suggested.get(key)}): (
+                PASSWORD if key == CONF_KTE_PASSWORD else selector.TextSelector()
+            )
             for key in keys
         }
     )
@@ -297,7 +313,9 @@ class MeterBotsConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class MeterBotsOptionsFlow(OptionsFlow):
-    """Account and address the scenarios pick in the bots; the YASNO address gives the API's internal id."""
+    """Account and address the scenarios pick in the bots; the YASNO address gives the API's internal id; the
+    Київводоканал account and the Київтеплоенерго login send water without the bot. Each is checked once when saved.
+    """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -306,6 +324,10 @@ class MeterBotsOptionsFlow(OptionsFlow):
             options: dict[str, Any] = {k: v.strip() for k, v in user_input.items() if v and v.strip()}
             if any(k in options for k in YASNO_ADDRESS):
                 await self._async_yasno_internal_id(options, errors, placeholders)
+            if not errors and options.get(CONF_KVK_ACCOUNT) != self.config_entry.options.get(CONF_KVK_ACCOUNT):
+                await self._async_check_kvk(options, errors, placeholders)
+            if not errors and _kte_changed(options, self.config_entry.options):
+                await self._async_check_kte(options, errors, placeholders)
             if not errors:
                 return self.async_create_entry(data=options)
         return self.async_show_form(
@@ -348,3 +370,40 @@ class MeterBotsOptionsFlow(OptionsFlow):
             placeholders["detail"] = f"\n\nYASNO: {masked}"
             return
         options[CONF_YASNO_INTERNAL_ID] = found["accountId"]
+
+    async def _async_check_kvk(
+        self, options: dict[str, Any], errors: dict[str, str], placeholders: dict[str, str]
+    ) -> None:
+        """Київводоканал must list meters for the account."""
+        if CONF_KVK_ACCOUNT not in options:
+            return
+        try:
+            await KvkApi(async_get_clientsession(self.hass)).counters(options[CONF_KVK_ACCOUNT])
+        except KvkRejected as err:
+            errors[CONF_KVK_ACCOUNT] = "kvk_account_not_found"
+            placeholders["detail"] = f"\n\n{err}"
+        except KvkUnavailable as err:
+            errors["base"] = "kvk_cannot_connect"
+            placeholders["detail"] = f"\n\n{err}"
+
+    async def _async_check_kte(
+        self, options: dict[str, Any], errors: dict[str, str], placeholders: dict[str, str]
+    ) -> None:
+        """Both or neither; with both, log in once."""
+        if (CONF_KTE_EMAIL in options) != (CONF_KTE_PASSWORD in options):
+            errors["base"] = "kte_login_incomplete"
+            return
+        if CONF_KTE_EMAIL not in options:
+            return
+        session = async_create_clientsession(self.hass, auto_cleanup=False, cookie_jar=aiohttp.CookieJar())
+        try:
+            await KteCabinet(session).login(options[CONF_KTE_EMAIL], options[CONF_KTE_PASSWORD])
+        except KteError as err:
+            errors["base"] = "kte_login_failed"
+            placeholders["detail"] = f"\n\n{err}"
+        finally:
+            await session.close()
+
+
+def _kte_changed(new: Mapping[str, Any], old: Mapping[str, Any]) -> bool:
+    return any(new.get(k) != old.get(k) for k in (CONF_KTE_EMAIL, CONF_KTE_PASSWORD))

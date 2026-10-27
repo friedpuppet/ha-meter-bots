@@ -259,14 +259,6 @@ async def test_without_address_only_the_bot(hass: HomeAssistant, bots, aioclient
         await _submit(hass, via="api")
 
 
-async def test_komunalka_cannot_go_via_api(hass: HomeAssistant, bots):
-    await setup_entry(hass, api_entry())
-    with pytest.raises(ServiceValidationError):
-        await hass.services.async_call(
-            DOMAIN, "submit", {"bot": "komunalka", "readings": {"1000001": 222.0}, "via": "api"}, blocking=True
-        )
-
-
 # --- options: the address gives the internal id ---------------------------------------------------------------
 
 ADDRESS = {CONF_YASNO_STREET: "Тестова", CONF_YASNO_HOUSE: "1", CONF_YASNO_APARTMENT: "1"}

@@ -69,14 +69,17 @@
   "options": {
     "step": {
       "init": {
-        "description": "The YASNO address enables the web API (faster than the bot). Leave it empty to use only the bot.{detail}",
+        "description": "The YASNO address, the Київводоканал account and the Київтеплоенерго login enable the web APIs (faster than the bot). Leave them empty to use only the bot.{detail}",
         "data": {
           "yasno_account": "YASNO account number",
           "yasno_city": "YASNO: city",
           "yasno_street": "YASNO: street",
           "yasno_house": "YASNO: house",
           "yasno_apartment": "YASNO: apartment",
-          "komunalka_address": "Комуналка address"
+          "komunalka_address": "Комуналка address",
+          "kvk_account": "Київводоканал: account (ЦКС)",
+          "kte_email": "Київтеплоенерго: cabinet e-mail",
+          "kte_password": "Київтеплоенерго: cabinet password"
         },
         "data_description": {
           "yasno_account": "Особовий рахунок, as you type it into @Yasnoonlinebot.",
@@ -84,7 +87,10 @@
           "yasno_street": "The street name or a unique part of it, without «вул.».",
           "yasno_house": "Exactly as on yasno.ua, e.g. 4 or 4 А.",
           "yasno_apartment": "With the address, readings go through YASNO's web API, and the bot is only the fallback. The address is looked up once when you save; the account it finds must match the account number above.",
-          "komunalka_address": "Only needed if @komunalkaua_bot lists more than one address: a part of the address button's text."
+          "komunalka_address": "Only needed if @komunalkaua_bot lists more than one address: a part of the address button's text.",
+          "kvk_account": "Особовий рахунок КК ЦКС from the water bill (10 digits). Cold water and hot-water drainage go to Київводоканал's public form; checked when you save.",
+          "kte_email": "Login of kte.kmda.gov.ua/my-cabinet. With the password, hot water goes through the cabinet; the login is checked when you save.",
+          "kte_password": "Stored in Home Assistant (and its backups), like the Telegram session."
         }
       }
     },
@@ -93,7 +99,11 @@
       "yasno_account_required": "Needed to check the account YASNO finds at the address.",
       "yasno_address_not_found": "YASNO didn't find this address.",
       "yasno_cannot_connect": "YASNO's web API didn't answer. Try again later.",
-      "yasno_account_mismatch": "At this address YASNO has a different account."
+      "yasno_account_mismatch": "At this address YASNO has a different account.",
+      "kvk_account_not_found": "Київводоканал doesn't know this account.",
+      "kvk_cannot_connect": "Київводоканал's form didn't answer. Try again later.",
+      "kte_login_incomplete": "Fill in both the e-mail and the password, or leave both empty.",
+      "kte_login_failed": "Couldn't log in to the Київтеплоенерго cabinet."
     }
   },
   "entity": {

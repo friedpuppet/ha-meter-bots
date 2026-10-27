@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
@@ -15,11 +16,11 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession, async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
-from . import scenarios, yasno_api
+from . import kte_api, kvk_api, scenarios, yasno_api
 from .client import AuthError, TelegramSession
 from .const import (
     ATTR_BOT,
@@ -33,6 +34,9 @@ from .const import (
     CONF_API_HASH,
     CONF_API_ID,
     CONF_KOMUNALKA_ADDRESS,
+    CONF_KTE_EMAIL,
+    CONF_KTE_PASSWORD,
+    CONF_KVK_ACCOUNT,
     CONF_SESSION,
     CONF_YASNO_ACCOUNT,
     CONF_YASNO_INTERNAL_ID,
@@ -42,6 +46,8 @@ from .const import (
     RESULT_FAILED,
     RESULT_OK,
     SERVICE_SUBMIT,
+    SUPPLIER_KTE,
+    SUPPLIER_KVK,
     VIA_API,
     VIA_AUTO,
     VIA_TELEGRAM,
@@ -99,6 +105,43 @@ def _entry_for(hass: HomeAssistant, entry_id: str | None) -> MeterBotsConfigEntr
     return entries[0]
 
 
+SUPPLIER_NAMES = {BOT_YASNO: "YASNO", SUPPLIER_KVK: "Київводоканал", SUPPLIER_KTE: "Київтеплоенерго"}
+API_REJECTED = (yasno_api.YasnoRejected, kvk_api.KvkRejected, kte_api.KteRejected)
+API_UNAVAILABLE = (yasno_api.YasnoUnavailable, kvk_api.KvkUnavailable, kte_api.KteUnavailable)
+
+
+async def _yasno_api(hass: HomeAssistant, options: Mapping[str, Any], readings: dict[str, float], **kwargs: Any):
+    api = yasno_api.YasnoApi(async_get_clientsession(hass))
+    return await yasno_api.yasno(api, options[CONF_YASNO_INTERNAL_ID], readings["day"], readings["night"], **kwargs)
+
+
+async def _kvk_api(hass: HomeAssistant, options: Mapping[str, Any], readings: dict[str, float], **kwargs: Any):
+    api = kvk_api.KvkApi(async_get_clientsession(hass))
+    return await kvk_api.kvk(api, str(options[CONF_KVK_ACCOUNT]), readings, **kwargs)
+
+
+async def _kte_api(hass: HomeAssistant, options: Mapping[str, Any], readings: dict[str, float], **kwargs: Any):
+    # The cabinet keeps the login in a cookie: a session of its own, closed after the run
+    session = async_create_clientsession(hass, auto_cleanup=False, cookie_jar=aiohttp.CookieJar())
+    try:
+        cabinet = kte_api.KteCabinet(session)
+        return await kte_api.kte(cabinet, options[CONF_KTE_EMAIL], options[CONF_KTE_PASSWORD], readings, **kwargs)
+    finally:
+        await session.close()
+
+
+def _unknown_serials(results: list[dict[str, Any]], readings: dict[str, float]) -> list[dict[str, Any]]:
+    """One «not_found» per serial no supplier listed; the APIs leave them out, the bot reports its own."""
+    def serial(result: dict[str, Any]) -> str:
+        match = scenarios.KOMUNALKA_METER.match(result["meter"])
+        return match.group(1) if match else result["meter"]
+
+    found = {serial(r) for r in results if r.get("status") != scenarios.STATUS_NOT_FOUND}
+    kept = [r for r in results if r.get("status") != scenarios.STATUS_NOT_FOUND]
+    missing = [s for s in readings if s not in found]
+    return kept + [{"meter": s, "value": readings[s], "status": scenarios.STATUS_NOT_FOUND} for s in missing]
+
+
 async def async_submit(
     hass: HomeAssistant,
     entry: MeterBotsConfigEntry,
@@ -111,53 +154,63 @@ async def async_submit(
 ) -> dict[str, Any]:
     """Run one supplier's submission; record and return what happened.
 
-    YASNO goes through its web API when the address is set up, and through its Telegram bot only if the API gives
-    no usable answer (or ``via`` asks for the bot). A refusal by the API is final: the bot would refuse too.
-    Комуналка has only the bot.
+    YASNO goes through its web API when the address is set up. Water (``komunalka``) goes to Київводоканал's
+    public form and Київтеплоенерго's cabinet, each when set up. The Telegram bot takes whatever has no
+    API set up, or whose API gave no usable answer, or everything when ``via`` asks for the bot. A refusal by an
+    API is final: the bot would refuse too.
     """
     if max_increase is None:
         max_increase = DEFAULT_MAX_INCREASE[bot]
-    internal_id = entry.options.get(CONF_YASNO_INTERNAL_ID) if bot == BOT_YASNO else None
+    options = entry.options
     if bot == BOT_YASNO:
         if set(readings) != {"day", "night"}:
             raise ServiceValidationError("Для YASNO потрібні покази day і night")
-        if via == VIA_API and not internal_id:
+        if via == VIA_API and not options.get(CONF_YASNO_INTERNAL_ID):
             raise ServiceValidationError("Вкажіть адресу YASNO в налаштуваннях інтеграції")
-        if (via == VIA_TELEGRAM or not internal_id) and not entry.options.get(CONF_YASNO_ACCOUNT):
+        if (via == VIA_TELEGRAM or not options.get(CONF_YASNO_INTERNAL_ID)) and not options.get(CONF_YASNO_ACCOUNT):
             raise ServiceValidationError("Вкажіть особовий рахунок YASNO в налаштуваннях інтеграції")
-    elif via == VIA_API:
-        raise ServiceValidationError("Через API передається лише YASNO")
+        apis = {BOT_YASNO: _yasno_api} if options.get(CONF_YASNO_INTERNAL_ID) else {}
+        everything = {BOT_YASNO}
+    else:
+        apis = {}
+        if options.get(CONF_KVK_ACCOUNT):
+            apis[SUPPLIER_KVK] = _kvk_api
+        if options.get(CONF_KTE_EMAIL) and options.get(CONF_KTE_PASSWORD):
+            apis[SUPPLIER_KTE] = _kte_api
+        if via == VIA_API and not apis:
+            raise ServiceValidationError(
+                "Вкажіть особовий рахунок Київводоканалу або вхід у кабінет Київтеплоенерго в налаштуваннях"
+            )
+        everything = {SUPPLIER_KVK, SUPPLIER_KTE}
+    if via == VIA_TELEGRAM:
+        apis = {}
 
     runtime = entry.runtime_data
-    error: str | None = None
-    api_error: str | None = None
+    errors: list[str] = []
+    api_errors: list[str] = []
     results: list[dict[str, Any]] = []
     dialog: Dialog | None = None
-    used = VIA_TELEGRAM
+    for_bot = everything - set(apis)
+    answered = False  # some API answered (readings or a refusal)
     async with runtime.lock:
-        if internal_id and via != VIA_TELEGRAM:
-            used = VIA_API
+        for supplier, run in apis.items():
+            name = SUPPLIER_NAMES[supplier]
             try:
-                results = await yasno_api.yasno(
-                    yasno_api.YasnoApi(async_get_clientsession(hass)),
-                    internal_id,
-                    readings["day"],
-                    readings["night"],
-                    dry_run=dry_run,
-                    max_increase=max_increase,
-                )
-            except yasno_api.YasnoRejected as err:
-                error = f"YASNO: {err}"
-            except yasno_api.YasnoUnavailable as err:
-                _LOGGER.warning("YASNO API gave no usable answer: %s", err)
+                results += await run(hass, options, readings, dry_run=dry_run, max_increase=max_increase)
+                answered = True
+            except API_REJECTED as err:
+                errors.append(f"{name}: {err}")
+                answered = True
+            except API_UNAVAILABLE as err:
+                _LOGGER.warning("%s API gave no usable answer: %s", name, err)
                 if via == VIA_API:
-                    error = f"API YASNO: {err}"
-                elif entry.options.get(CONF_YASNO_ACCOUNT):
-                    api_error = str(err)
-                    used = VIA_TELEGRAM
+                    errors.append(f"API {name}: {err}")
+                elif bot == BOT_YASNO and not options.get(CONF_YASNO_ACCOUNT):
+                    errors.append(f"API {name}: {err}; для бота не вказано особовий рахунок")
                 else:
-                    error = f"API YASNO: {err}; для бота не вказано особовий рахунок"
-        if used == VIA_TELEGRAM:
+                    api_errors.append(f"{name}: {err}")
+                    for_bot.add(supplier)
+        if for_bot and via != VIA_API:
             try:
                 async with TelegramSession(
                     entry.data[CONF_SESSION], entry.data[CONF_API_ID], entry.data[CONF_API_HASH]
@@ -168,26 +221,33 @@ async def async_submit(
                             dialog,
                             readings["day"],
                             readings["night"],
-                            account=str(entry.options[CONF_YASNO_ACCOUNT]),
+                            account=str(options[CONF_YASNO_ACCOUNT]),
                             dry_run=dry_run,
                             max_increase=max_increase,
                         )
                     else:
-                        results = await scenarios.komunalka(
+                        results += await scenarios.komunalka(
                             dialog,
                             readings,
-                            address=entry.options.get(CONF_KOMUNALKA_ADDRESS) or None,
+                            address=options.get(CONF_KOMUNALKA_ADDRESS) or None,
                             dry_run=dry_run,
                             max_increase=max_increase,
+                            suppliers=None if for_bot == everything else for_bot,
                         )
             except AuthError as err:
                 entry.async_start_reauth(hass)
                 raise HomeAssistantError(f"Telegram-сесія більше не діє, увійдіть знову: {err}") from err
             except DialogError as err:
-                error = str(err)
+                errors.append(str(err))
             except Exception as err:  # Telegram/network errors: report them like a bot problem
                 _LOGGER.exception("Submitting to %s failed", bot)
-                error = f"{type(err).__name__}: {err}"
+                errors.append(f"{type(err).__name__}: {err}")
+    if bot != BOT_YASNO:
+        results = _unknown_serials(results, readings)
+
+    used = VIA_API if not dialog else f"{VIA_API}+{VIA_TELEGRAM}" if answered else VIA_TELEGRAM
+    error = "; ".join(errors) or None
+    api_error = "; ".join(api_errors) or None
 
     failed = error is not None or any(r.get("status") in FAILED_STATUSES for r in results)
     outcome = RESULT_FAILED if failed else RESULT_DRY_RUN if dry_run else RESULT_OK

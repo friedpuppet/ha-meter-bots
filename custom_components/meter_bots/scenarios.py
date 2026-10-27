@@ -10,6 +10,7 @@ import math
 import re
 from typing import Any
 
+from .const import SUPPLIER_KTE, SUPPLIER_KVK
 from .dialog import Dialog, DialogError, expect
 
 I = "[іi]"  # Cyrillic or Latin i
@@ -83,6 +84,12 @@ async def komunalka_back(dialog: Dialog, place: str) -> None:
     await dialog.say(dialog.button(place))
 
 
+def komunalka_supplier(item: str) -> str:
+    """«1000001 - ГАРЯЧА ВОДА» → kte; cold water and every drainage item → kvk."""
+    service = KOMUNALKA_METER.match(item).group(2).upper()
+    return SUPPLIER_KTE if service.startswith("ГАРЯЧА") else SUPPLIER_KVK
+
+
 async def komunalka(
     dialog: Dialog,
     readings: dict[str, float],
@@ -90,11 +97,13 @@ async def komunalka(
     address: str | None,
     dry_run: bool,
     max_increase: float,
+    suppliers: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Send every meter of the address whose serial number is in ``readings``.
 
     One serial can stand for several items (hot water and its drainage are billed separately), each gets
-    the same value.
+    the same value. ``suppliers`` limits the run to those suppliers' items (see ``komunalka_supplier``) when
+    the others already went through their web APIs.
     """
     await komunalka_home(dialog)
     await dialog.say(dialog.button("Адреси"))
@@ -115,6 +124,8 @@ async def komunalka(
 
     for item in items:
         serial = KOMUNALKA_METER.match(item).group(1)
+        if suppliers is not None and komunalka_supplier(item) not in suppliers:
+            continue
         if serial not in readings:
             results.append({"meter": item, "status": STATUS_NO_READING})
             continue

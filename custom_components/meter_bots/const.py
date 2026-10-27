@@ -17,6 +17,10 @@ CONF_YASNO_HOUSE = "yasno_house"
 CONF_YASNO_APARTMENT = "yasno_apartment"
 CONF_YASNO_INTERNAL_ID = "yasno_internal_id"
 DEFAULT_YASNO_CITY = "Київ"
+# Water without the bot: Київводоканал's public form (by the ЦКС account) and Київтеплоенерго's cabinet
+CONF_KVK_ACCOUNT = "kvk_account"
+CONF_KTE_EMAIL = "kte_email"
+CONF_KTE_PASSWORD = "kte_password"
 
 BOT_YASNO = "yasno"
 BOT_KOMUNALKA = "komunalka"
@@ -41,11 +45,15 @@ ATTR_DRY_RUN = "dry_run"
 ATTR_MAX_INCREASE = "max_increase"
 ATTR_VIA = "via"
 
-# How a submission goes: YASNO's web API first, its Telegram bot if the API gives no usable answer
+# How a submission goes: the suppliers' web APIs first, the Telegram bot if an API gives no usable answer
 VIA_AUTO = "auto"
 VIA_API = "api"
 VIA_TELEGRAM = "telegram"
 VIAS = [VIA_AUTO, VIA_API, VIA_TELEGRAM]
+
+# Who bills a Комуналка item: hot water itself is Київтеплоенерго's, cold water and all drainage Київводоканал's
+SUPPLIER_KVK = "kvk"
+SUPPLIER_KTE = "kte"
 
 RESULT_OK = "ok"
 RESULT_FAILED = "failed"

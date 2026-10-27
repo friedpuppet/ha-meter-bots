@@ -63,7 +63,13 @@ way it goes; item names and the supplier sensors are the same either way.
 
 Per bot there are two sensors: *last submission* (timestamp of the last real one that went through) and
 *last attempt* (`ok` / `failed` / `dry_run`, details in the attributes: `error`, `api_error`, `via`, `results`).
-Every failure is recorded there, also one that makes the service call itself fail (a dead Telegram session).
+Every failure is recorded there, also one that makes the service call itself fail (a dead Telegram session);
+`retryable` says whether running again later may help (a site or bot didn't answer) or not (a value was refused).
+
+Running again is safe. A site that gives no usable answer is asked twice more (after 10 s and 30 s) before the
+bot takes over. And a reading the supplier's site already shows from this month isn't sent again
+(`already_there`, counted as success), so a repeat run sends only what's missing. The bots can't tell this
+(they show the last billed reading), so items that go through a bot are sent again.
 Scheduling is left to an automation.
 
 ## Development

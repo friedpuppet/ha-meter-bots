@@ -104,3 +104,17 @@ async def test_supplier_readings_become_sensors(hass: HomeAssistant, bots):
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.telegram_test_komunalka_1000001").state == "208.0"
+
+
+async def test_retryable_tells_a_failure_from_a_refusal(hass: HomeAssistant, bots):
+    await setup_entry(hass, make_entry())
+    response = await _submit(hass, bot="komunalka", readings={"1000001": 1.0})  # lower than the bot's
+    assert response["result"] == "failed"
+    assert response["retryable"] is False
+    response = await _submit(hass, bot="komunalka", readings={"1000001": 222.0})
+    assert response["retryable"] is False  # ok
+    bots.bots["komunalkaua_bot"].answer = lambda text: None  # the bot stops answering
+    response = await _submit(hass, bot="komunalka", readings={"1000001": 222.0})
+    assert response["result"] == "failed"
+    assert response["retryable"] is True
+    assert hass.states.get(KOMUNALKA_ATTEMPT).attributes["retryable"] is True

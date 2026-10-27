@@ -312,3 +312,18 @@ async def test_options_clearing_address_drops_internal_id(hass: HomeAssistant, b
     result = await _options(hass, entry, {CONF_YASNO_ACCOUNT: YASNO_ACCOUNT})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert CONF_YASNO_INTERNAL_ID not in entry.options
+
+
+async def test_same_readings_this_month_are_not_sent_again(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker):
+    mock_account(aioclient_mock)
+    api = yasno_api.YasnoApi(async_get_clientsession(hass))
+    results = await yasno_api.yasno(
+        api, INTERNAL_ID, 15000.4, 7514.9, dry_run=False, max_increase=3000, this_month="2026-10"
+    )
+    assert posts(aioclient_mock) == []
+    assert {r["status"] for r in results} == {"already_there"}
+    # From an earlier month they have to go again
+    results = await yasno_api.yasno(
+        api, INTERNAL_ID, 15000.4, 7514.9, dry_run=False, max_increase=3000, this_month="2026-11"
+    )
+    assert len(posts(aioclient_mock)) == 1

@@ -38,6 +38,13 @@ def auto_enable_custom_integrations(enable_custom_integrations):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_retry_pauses():
+    """The sites are retried at once in tests; the number of tries stays as in production."""
+    with patch("custom_components.meter_bots.RETRY_DELAYS", (0, 0)):
+        yield
+
+
 class FakeSession:
     """Replaces ``TelegramSession``; ``authorized`` is flipped by tests."""
 

@@ -156,8 +156,12 @@ async def kte(
     *,
     dry_run: bool,
     max_increase: float,
+    this_month: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Same checks and result format as ``scenarios.komunalka``, for the meters Київтеплоенерго lists."""
+    """Same checks and result format as ``scenarios.komunalka``, for the meters Київтеплоенерго lists.
+
+    A meter whose history already has this reading accepted in ``this_month`` isn't sent again.
+    """
     results: list[dict[str, Any]] = []
     for account in await cabinet.login(email, password):
         fields, meters = await cabinet.form(account)
@@ -174,6 +178,8 @@ async def kte(
             results.append(result)
             if problem := scenarios.check_value(value, result["previous"], max_increase):
                 result.update(status=scenarios.STATUS_REJECTED, reason=problem)
+            elif scenarios.already_there(value, result["previous"], result.get("previous_date"), this_month):
+                result["status"] = scenarios.STATUS_ALREADY
             elif dry_run:
                 result["status"] = scenarios.STATUS_DRY_RUN
             else:

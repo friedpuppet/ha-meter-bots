@@ -67,6 +67,7 @@ class _BotSensor(MeterBotsEntity, SensorEntity):
             "results": record.get("results"),
             "via": record.get("via"),
             "api_error": record.get("api_error"),
+            "retryable": record.get("retryable"),
         }
 
     async def async_added_to_hass(self) -> None:

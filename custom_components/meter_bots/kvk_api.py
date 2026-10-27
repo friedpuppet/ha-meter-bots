@@ -94,10 +94,12 @@ async def kvk(
     *,
     dry_run: bool,
     max_increase: float,
+    this_month: str | None = None,
 ) -> list[dict[str, Any]]:
     """Same checks and result format as ``scenarios.komunalka``, for the meters Київводоканал lists.
 
-    Serials it doesn't list are left out, not reported: the other supplier may have them.
+    Serials it doesn't list are left out, not reported: the other supplier may have them. A meter that already
+    has this reading from ``this_month`` isn't sent again, so a repeated run only sends what's missing.
     """
     counters = await api.counters(account)
     results: list[dict[str, Any]] = []
@@ -115,6 +117,8 @@ async def kvk(
         results.append(result)
         if problem := scenarios.check_value(value, previous, max_increase):
             result.update(status=scenarios.STATUS_REJECTED, reason=problem)
+        elif scenarios.already_there(value, previous, result.get("previous_date"), this_month):
+            result["status"] = scenarios.STATUS_ALREADY
         elif dry_run:
             result["status"] = scenarios.STATUS_DRY_RUN
         else:

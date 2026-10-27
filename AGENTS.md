@@ -132,6 +132,11 @@ under `supplier`, and a sensor per meter appears: `sensor.<device>_yasno_{day,ni
   YASNO went through the API (`via: api`). The first real YASNO submission is due 2026-10-30.
 - 2026-10-27: 0.4.0, water through Київводоканал's form and Київтеплоенерго's cabinet, the bot only for what they
   didn't take. Live dry runs of both (read only) pass from the desktop. Not yet: a real submission through either.
+- 2026-10-27: 0.5.0, repeats: `RETRY_DELAYS` (10, 30 s) per site before the bot; `already_there` when the site's
+  previous reading equals ours and is from this month (KVK `dateFrom`, KTE history date, YASNO `createdOn`);
+  `retryable` in the record (failed, but no refusal and no rejected/not_found item) for the automations' same-day
+  retries. «not_found» is only reported when every list of meters came in (a silent bot used to turn into
+  «not_found», i.e. a refusal).
 - 2026-10-27: 0.4.1 (per-item `via`/`supplier`, every failure recorded) released and installed through HACS. A dry
   run on HA: 4 items via Київводоканал's API, 2 «ГАРЯЧА ВОДА» via the bot (KTE login not set up yet).
 - 2026-10-20: public at https://github.com/friedpuppet/ha-meter-bots, release v0.2.0, installed on HA through HACS

@@ -105,6 +105,9 @@ def _entry_for(hass: HomeAssistant, entry_id: str | None) -> MeterBotsConfigEntr
     return entries[0]
 
 
+# A site that gave no usable answer is asked again after these pauses (s) before the bot takes over
+RETRY_DELAYS = (10, 30)
+
 SUPPLIER_NAMES = {BOT_YASNO: "YASNO", SUPPLIER_KVK: "Київводоканал", SUPPLIER_KTE: "Київтеплоенерго"}
 API_REJECTED = (yasno_api.YasnoRejected, kvk_api.KvkRejected, kte_api.KteRejected)
 API_UNAVAILABLE = (yasno_api.YasnoUnavailable, kvk_api.KvkUnavailable, kte_api.KteUnavailable)
@@ -130,8 +133,29 @@ async def _kte_api(hass: HomeAssistant, options: Mapping[str, Any], readings: di
         await session.close()
 
 
+async def _with_retries(name: str, run: Callable[..., Any], *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    """``run`` again after each of ``RETRY_DELAYS`` while it gives no usable answer; a refusal isn't retried.
+
+    Safe to repeat: the APIs skip what the supplier already has (``STATUS_ALREADY``), so a run whose answer was
+    lost after the supplier took the readings doesn't send them twice.
+    """
+    for delay in RETRY_DELAYS:
+        try:
+            return await run(*args, **kwargs)
+        except API_UNAVAILABLE as err:
+            _LOGGER.info("%s gave no usable answer (%s); trying again in %s s", name, err, delay)
+            await asyncio.sleep(delay)
+    try:
+        return await run(*args, **kwargs)
+    except API_UNAVAILABLE as err:
+        if not RETRY_DELAYS:
+            raise
+        raise type(err)(f"{err} (спроб: {len(RETRY_DELAYS) + 1})") from err
+
+
 def _unknown_serials(results: list[dict[str, Any]], readings: dict[str, float]) -> list[dict[str, Any]]:
     """One «not_found» per serial no supplier listed; the APIs leave them out, the bot reports its own."""
+
     def serial(result: dict[str, Any]) -> str:
         match = scenarios.KOMUNALKA_METER.match(result["meter"])
         return match.group(1) if match else result["meter"]
@@ -192,17 +216,28 @@ async def async_submit(
     dialog: Dialog | None = None
     for_bot = everything - set(apis)
     answered = False  # some API answered (readings or a refusal)
+    refused = False  # a supplier said no: running again won't help
     auth_error: AuthError | None = None
     async with runtime.lock:
         for supplier, run in apis.items():
             name = SUPPLIER_NAMES[supplier]
             try:
-                got = await run(hass, options, readings, dry_run=dry_run, max_increase=max_increase)
+                got = await _with_retries(
+                    name,
+                    run,
+                    hass,
+                    options,
+                    readings,
+                    dry_run=dry_run,
+                    max_increase=max_increase,
+                    this_month=dt_util.now().strftime("%Y-%m"),
+                )
                 results += [{**r, "via": VIA_API, "supplier": supplier} for r in got]
                 answered = True
             except API_REJECTED as err:
                 errors.append(f"{name}: {err}")
                 answered = True
+                refused = True
             except Exception as err:  # API_UNAVAILABLE, or a page we failed to read: the bot may still work
                 if isinstance(err, API_UNAVAILABLE):
                     reason = str(err)
@@ -252,14 +287,15 @@ async def async_submit(
                 _LOGGER.exception("Submitting to %s failed", bot)
                 errors.append(f"{type(err).__name__}: {err}")
             results += [{**r, "via": VIA_TELEGRAM, "supplier": _bot_supplier(bot, r)} for r in got]
-    if bot != BOT_YASNO:
+    if bot != BOT_YASNO and not errors:  # «not found» only when every list of meters came in
         results = _unknown_serials(results, readings)
 
     used = VIA_API if not dialog else f"{VIA_API}+{VIA_TELEGRAM}" if answered else VIA_TELEGRAM
     error = "; ".join(errors) or None
     api_error = "; ".join(api_errors) or None
 
-    failed = error is not None or any(r.get("status") in FAILED_STATUSES for r in results)
+    refused = refused or any(r.get("status") in FAILED_STATUSES for r in results)
+    failed = error is not None or refused
     outcome = RESULT_FAILED if failed else RESULT_DRY_RUN if dry_run else RESULT_OK
     record = {
         "at": dt_util.utcnow().isoformat(),
@@ -268,6 +304,8 @@ async def async_submit(
         "results": results,
         "via": used,
         "api_error": api_error,
+        # A technical failure (network, a site or bot down): worth running again later. Not a refused value.
+        "retryable": failed and not refused,
     }
     _remember_supplier_readings(runtime.persisted.data, bot, results, record["at"])
     last = runtime.persisted.data.setdefault(bot, {})

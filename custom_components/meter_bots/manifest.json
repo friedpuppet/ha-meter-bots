@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/friedpuppet/ha-meter-bots/issues",
   "loggers": ["telethon"],
   "requirements": ["telethon==1.45.0"],
-  "version": "0.4.1"
+  "version": "0.5.0"
 }

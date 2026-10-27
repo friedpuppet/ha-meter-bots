@@ -20,6 +20,7 @@ STATUS_DRY_RUN = "dry_run"
 STATUS_REJECTED = "rejected"  # our own check refused the value; nothing was sent for it
 STATUS_NOT_FOUND = "not_found"  # no such meter in the bot
 STATUS_NO_READING = "no_reading"  # the bot has the meter, we have no value for it
+STATUS_ALREADY = "already_there"  # the supplier already has this very reading from this month; not sent again
 
 
 def parse_number(text: str) -> float:
@@ -37,6 +38,16 @@ def check_value(value: float, previous: float | None, max_increase: float) -> st
     if value > previous + max_increase:
         return f"показ {value} більший за попередній {previous} на понад {max_increase}"
     return None
+
+
+def already_there(value: float, previous: float | None, previous_date: str | None, this_month: str | None) -> bool:
+    """The supplier's last accepted reading is this one and from this month (``YYYY-MM``): a repeat run skips it."""
+    return (
+        this_month is not None
+        and previous is not None
+        and abs(value - previous) < 0.005
+        and (previous_date or "")[:7] == this_month
+    )
 
 
 def format_m3(value: float) -> str:

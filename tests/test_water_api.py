@@ -37,7 +37,7 @@ def counter(id_: int, serial: str, kind: str, previous: float) -> dict:
         "counterNumber": serial,
         "beginFactor": previous - 1,
         "endFactor": previous,
-        "dateFrom": "2026-10-25T08:12:04Z",
+        "dateFrom": "2026-09-25T08:12:04Z",
         "counterType": {"id": 2 if kind == "Холодна вода" else 3, "name": kind},
         "invoiceAccount": {"id": 1, "code": KVK_ACCOUNT},
     }
@@ -115,7 +115,7 @@ def mock_kte(aioclient_mock: AiohttpClientMocker, *, login=HOME_PAGE, done=DONE_
     aioclient_mock.get(f"{base}send_counters/send_current_new/77", text=FORM_PAGE, headers=HTML)
     aioclient_mock.get(
         f"{base}send_counters/history_counters/77/11",
-        text=history(("2026-10-27 Не зараховано", "300"), ("2026-10-25 Зараховано", "222.01")),
+        text=history(("2026-09-27 Не зараховано", "300"), ("2026-09-25 Зараховано", "222.01")),
         headers=HTML,
     )
     aioclient_mock.get(f"{base}send_counters/history_counters/77/12", text=history(), headers=HTML)
@@ -157,7 +157,7 @@ async def test_kvk_sends_the_changed_meters(hass: HomeAssistant, aioclient_mock:
     ]
     assert {r["status"] for r in results} == {"submitted"}
     assert results[0]["previous"] == 353.8
-    assert results[0]["previous_date"] == "2026-10-25"
+    assert results[0]["previous_date"] == "2026-09-25"
 
 
 async def test_kvk_dry_run_and_checks(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker):
@@ -241,7 +241,7 @@ async def test_kte_logs_in_and_posts_the_form(hass: HomeAssistant, aioclient_moc
         {
             "meter": "1000001 - ГАРЯЧА ВОДА",
             "previous": 222.01,
-            "previous_date": "2026-10-25",
+            "previous_date": "2026-09-25",
             "value": 222.01,
             "status": "submitted",
         },
@@ -432,12 +432,55 @@ async def test_each_item_says_which_way(hass: HomeAssistant, bots, aioclient_moc
     assert hass.states.get(ATTEMPT).attributes["results"] == response["results"]
 
 
-async def test_unexpected_api_failure_goes_to_the_bot(
-    hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker
-):
+async def test_unexpected_api_failure_goes_to_the_bot(hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker):
     await setup_entry(hass, make_entry(**{CONF_KVK_ACCOUNT: KVK_ACCOUNT}))
     with patch.object(kvk_api, "kvk", side_effect=KeyError("endFactor")):
         response = await _submit(hass, dry_run=True)
     assert response["result"] == "dry_run"
     assert response["via"] == "telegram"
     assert response["api_error"] == "Київводоканал: KeyError: 'endFactor'"
+
+
+# --- repeats: what the supplier already has isn't sent again, a site is asked again before the bot ----------------
+
+
+async def test_kvk_skips_what_it_already_has(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker):
+    mock_kvk(aioclient_mock)
+    readings = {"1000004": 353.8, "1000003": 1008.107}  # 1000004 is exactly the supplier's reading
+    results = await _kvk(hass, readings, this_month="2026-09")
+    assert [c["counterNumber"] for c in posts(aioclient_mock, "doc/cfs")[0][2]["counters"]] == ["1000003"]
+    assert [r["status"] for r in results][:2] == ["already_there", "submitted"]
+    # The same reading from an earlier month still has to be sent
+    results = await _kvk(hass, readings, this_month="2026-10")
+    assert [r["status"] for r in results][:2] == ["submitted", "submitted"]
+
+
+async def test_kte_skips_what_its_history_has(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker):
+    mock_kte(aioclient_mock)
+    results = await _kte(hass, {"1000001": 222.01}, this_month="2026-09")
+    assert posts(aioclient_mock, "send_current_new/77") == []
+    assert [r["status"] for r in results] == ["already_there", "no_reading"]
+
+
+async def test_a_site_is_asked_again_before_the_bot(hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker):
+    answers = iter([TimeoutError(), None])
+
+    async def flaky(*args, **kwargs):
+        if error := next(answers):
+            raise kvk_api.KvkUnavailable(f"TimeoutError: {error}")
+        return [{"meter": "1000003 - ХОЛОДНА ВОДА", "value": 1008.1, "status": "submitted"}]
+
+    await setup_entry(hass, make_entry(**{CONF_KVK_ACCOUNT: KVK_ACCOUNT}))
+    with patch("custom_components.meter_bots._kvk_api", flaky):
+        response = await _submit(hass, readings={"1000003": 1008.107}, dry_run=True)
+    assert response["api_error"] is None
+    assert response["results"][0]["via"] == "api"
+
+
+async def test_bot_after_all_tries(hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker):
+    aioclient_mock.post(f"{kvk_api.BASE}counter/search", exc=aiohttp.ClientConnectionError("down"))
+    await setup_entry(hass, make_entry(**{CONF_KVK_ACCOUNT: KVK_ACCOUNT}))
+    response = await _submit(hass, dry_run=True)
+    assert len(posts(aioclient_mock, "counter/search")) == 3
+    assert response["api_error"].endswith("(спроб: 3)")
+    assert response["via"] == "telegram"

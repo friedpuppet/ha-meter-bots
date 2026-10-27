@@ -130,8 +130,12 @@ async def yasno(
     *,
     dry_run: bool,
     max_increase: float,
+    this_month: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Same checks and result format as ``scenarios.yasno``: read the previous readings, check, send."""
+    """Same checks and result format as ``scenarios.yasno``: read the previous readings, check, send.
+
+    If YASNO's last readings are these very ones from ``this_month``, nothing is sent: a repeated run is a no-op.
+    """
     values = {"day": math.floor(day), "night": math.floor(night)}
     results: list[dict[str, Any]] = [{"meter": zone, "value": v} for zone, v in values.items()]
 
@@ -144,6 +148,13 @@ async def yasno(
             result["previous_date"] = str(last["createdOn"])[:10]
         if problem := scenarios.check_value(result["value"], result["previous"], max_increase):
             result.update(status=scenarios.STATUS_REJECTED, reason=problem)
+
+    if not any(r.get("status") for r in results) and all(
+        scenarios.already_there(r["value"], r["previous"], r.get("previous_date"), this_month) for r in results
+    ):
+        for result in results:
+            result["status"] = scenarios.STATUS_ALREADY
+        return results
 
     if dry_run or any(r.get("status") for r in results):
         for result in results:

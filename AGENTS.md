@@ -132,6 +132,8 @@ under `supplier`, and a sensor per meter appears: `sensor.<device>_yasno_{day,ni
   YASNO went through the API (`via: api`). The first real YASNO submission is due 2026-10-30.
 - 2026-10-27: 0.4.0, water through Київводоканал's form and Київтеплоенерго's cabinet, the bot only for what they
   didn't take. Live dry runs of both (read only) pass from the desktop. Not yet: a real submission through either.
+- 2026-10-27: 0.4.1 (per-item `via`/`supplier`, every failure recorded) released and installed through HACS. A dry
+  run on HA: 4 items via Київводоканал's API, 2 «ГАРЯЧА ВОДА» via the bot (KTE login not set up yet).
 - 2026-10-20: public at https://github.com/friedpuppet/ha-meter-bots, release v0.2.0, installed on HA through HACS
   (custom repository, HACS id `1426650776`; the earlier copy is in `/config/meter_bots-copy.bak-20261020-072909.tgz`).
   **Updating**: release (bump `manifest.json` + `pyproject.toml`), then WS `hacs/repository/download` with

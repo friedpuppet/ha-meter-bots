@@ -484,3 +484,31 @@ async def test_bot_after_all_tries(hass: HomeAssistant, bots, aioclient_mock: Ai
     assert len(posts(aioclient_mock, "counter/search")) == 3
     assert response["api_error"].endswith("(спроб: 3)")
     assert response["via"] == "telegram"
+
+
+async def test_without_fallback_a_silent_site_waits(hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker):
+    mock_kvk(aioclient_mock)
+    aioclient_mock.get(f"{kte_api.BASE}userhome_new", exc=aiohttp.ClientConnectionError("down"))
+    await setup_entry(hass, water_entry())
+    response = await _submit(hass, fallback=False)
+    assert response["result"] == "pending"
+    assert response["retryable"] is True
+    assert response["error"] is None
+    assert response["pending"].startswith("Київтеплоенерго: ClientConnectionError")
+    assert response["pending"].endswith("(спроб: 3)")
+    assert bots.opened == []  # hot water waits; the bot isn't asked
+    assert {r["supplier"] for r in response["results"]} == {"kvk"}
+    assert not [r for r in response["results"] if r["status"] == "not_found"]
+    assert hass.states.get(ATTEMPT).state == "pending"
+    assert hass.states.get("sensor.telegram_test_komunalka_last_submission").state == "unknown"
+
+
+async def test_without_fallback_a_supplier_without_site_still_goes_to_the_bot(
+    hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker
+):
+    mock_kvk(aioclient_mock)
+    await setup_entry(hass, make_entry(**{CONF_KVK_ACCOUNT: KVK_ACCOUNT}))
+    response = await _submit(hass, fallback=False)
+    assert response["result"] == "ok"
+    assert response["via"] == "api+telegram"
+    assert response["retryable"] is False

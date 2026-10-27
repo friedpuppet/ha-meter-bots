@@ -70,6 +70,11 @@ Running again is safe. A site that gives no usable answer is asked twice more (a
 bot takes over. And a reading the supplier's site already shows from this month isn't sent again
 (`already_there`, counted as success), so a repeat run sends only what's missing. The bots can't tell this
 (they show the last billed reading), so items that go through a bot are sent again.
+
+`fallback: false` keeps the bot out for a site that gave no usable answer: its items wait, the result is
+`pending` (with `pending` naming the sites and `retryable: true`), and a later run is to send them. Suppliers with
+no site set up still go through the bot. This lets an automation give a site hours before the bot takes over, e.g.
+runs at 10:05, 11:05 and 13:05 with `fallback: false` and at 16:05 with the bot.
 Scheduling is left to an automation.
 
 ## Development

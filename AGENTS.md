@@ -136,7 +136,10 @@ under `supplier`, and a sensor per meter appears: `sensor.<device>_yasno_{day,ni
   previous reading equals ours and is from this month (KVK `dateFrom`, KTE history date, YASNO `createdOn`);
   `retryable` in the record (failed, but no refusal and no rejected/not_found item) for the automations' same-day
   retries. «not_found» is only reported when every list of meters came in (a silent bot used to turn into
-  «not_found», i.e. a refusal).
+  «not_found», i.e. a refusal). The user's strategy: quick tries in a call, then a later run after 1 h, 2 h and
+  3 h, and only then the bot: service field `fallback` (default true); false → a silent site's items wait, result
+  `pending` (new state), record `pending` = the sites and reasons, `retryable` true. The schedule itself is in the
+  HA automations (`../utility-meters/`).
 - 2026-10-27: 0.4.1 (per-item `via`/`supplier`, every failure recorded) released and installed through HACS. A dry
   run on HA: 4 items via Київводоканал's API, 2 «ГАРЯЧА ВОДА» via the bot (KTE login not set up yet).
 - 2026-10-20: public at https://github.com/friedpuppet/ha-meter-bots, release v0.2.0, installed on HA through HACS

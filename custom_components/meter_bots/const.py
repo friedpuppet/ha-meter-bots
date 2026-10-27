@@ -44,6 +44,8 @@ ATTR_READINGS = "readings"
 ATTR_DRY_RUN = "dry_run"
 ATTR_MAX_INCREASE = "max_increase"
 ATTR_VIA = "via"
+# False: a site that gave no usable answer waits for a later run instead of going to the bot now
+ATTR_FALLBACK = "fallback"
 
 # How a submission goes: the suppliers' web APIs first, the Telegram bot if an API gives no usable answer
 VIA_AUTO = "auto"
@@ -58,4 +60,5 @@ SUPPLIER_KTE = "kte"
 RESULT_OK = "ok"
 RESULT_FAILED = "failed"
 RESULT_DRY_RUN = "dry_run"
-RESULTS = [RESULT_OK, RESULT_FAILED, RESULT_DRY_RUN]
+RESULT_PENDING = "pending"  # some site didn't answer and fallback was off: a later run is to send the rest
+RESULTS = [RESULT_OK, RESULT_FAILED, RESULT_DRY_RUN, RESULT_PENDING]

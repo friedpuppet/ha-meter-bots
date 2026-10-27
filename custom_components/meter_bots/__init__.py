@@ -25,6 +25,7 @@ from .client import AuthError, TelegramSession
 from .const import (
     ATTR_BOT,
     ATTR_DRY_RUN,
+    ATTR_FALLBACK,
     ATTR_MAX_INCREASE,
     ATTR_READINGS,
     ATTR_VIA,
@@ -45,6 +46,7 @@ from .const import (
     RESULT_DRY_RUN,
     RESULT_FAILED,
     RESULT_OK,
+    RESULT_PENDING,
     SERVICE_SUBMIT,
     SUPPLIER_KTE,
     SUPPLIER_KVK,
@@ -70,6 +72,7 @@ SUBMIT_SCHEMA = vol.Schema(
         vol.Optional(ATTR_DRY_RUN, default=False): cv.boolean,
         vol.Optional(ATTR_MAX_INCREASE): vol.All(vol.Coerce(float), vol.Range(min=0)),
         vol.Optional(ATTR_VIA, default=VIA_AUTO): vol.In(VIAS),
+        vol.Optional(ATTR_FALLBACK, default=True): cv.boolean,
     }
 )
 
@@ -175,13 +178,15 @@ async def async_submit(
     dry_run: bool = False,
     max_increase: float | None = None,
     via: str = VIA_AUTO,
+    fallback: bool = True,
 ) -> dict[str, Any]:
     """Run one supplier's submission; record and return what happened.
 
     YASNO goes through its web API when the address is set up. Water (``komunalka``) goes to Київводоканал's
     public form and Київтеплоенерго's cabinet, each when set up. The Telegram bot takes whatever has no
     API set up, or whose API gave no usable answer, or everything when ``via`` asks for the bot. A refusal by an
-    API is final: the bot would refuse too.
+    API is final: the bot would refuse too. With ``fallback`` off, a site that gave no usable answer isn't handed
+    to the bot: its items wait for a later run (result ``pending``, ``retryable``), which the automations make.
     """
     if max_increase is None:
         max_increase = DEFAULT_MAX_INCREASE[bot]
@@ -212,6 +217,7 @@ async def async_submit(
     runtime = entry.runtime_data
     errors: list[str] = []
     api_errors: list[str] = []
+    pending: list[str] = []  # sites that didn't answer and wait for a later run
     results: list[dict[str, Any]] = []
     dialog: Dialog | None = None
     for_bot = everything - set(apis)
@@ -249,6 +255,8 @@ async def async_submit(
                     errors.append(f"API {name}: {reason}")
                 elif bot == BOT_YASNO and not options.get(CONF_YASNO_ACCOUNT):
                     errors.append(f"API {name}: {reason}; для бота не вказано особовий рахунок")
+                elif not fallback:
+                    pending.append(f"{name}: {reason}")
                 else:
                     api_errors.append(f"{name}: {reason}")
                     for_bot.add(supplier)
@@ -287,7 +295,7 @@ async def async_submit(
                 _LOGGER.exception("Submitting to %s failed", bot)
                 errors.append(f"{type(err).__name__}: {err}")
             results += [{**r, "via": VIA_TELEGRAM, "supplier": _bot_supplier(bot, r)} for r in got]
-    if bot != BOT_YASNO and not errors:  # «not found» only when every list of meters came in
+    if bot != BOT_YASNO and not errors and not pending:  # «not found» only when every list of meters came in
         results = _unknown_serials(results, readings)
 
     used = VIA_API if not dialog else f"{VIA_API}+{VIA_TELEGRAM}" if answered else VIA_TELEGRAM
@@ -296,7 +304,7 @@ async def async_submit(
 
     refused = refused or any(r.get("status") in FAILED_STATUSES for r in results)
     failed = error is not None or refused
-    outcome = RESULT_FAILED if failed else RESULT_DRY_RUN if dry_run else RESULT_OK
+    outcome = RESULT_FAILED if failed else RESULT_PENDING if pending else RESULT_DRY_RUN if dry_run else RESULT_OK
     record = {
         "at": dt_util.utcnow().isoformat(),
         "result": outcome,
@@ -304,8 +312,10 @@ async def async_submit(
         "results": results,
         "via": used,
         "api_error": api_error,
-        # A technical failure (network, a site or bot down): worth running again later. Not a refused value.
-        "retryable": failed and not refused,
+        "pending": "; ".join(pending) or None,
+        # A technical failure (network, a site or bot down) or a site left for later: worth running again.
+        # Not a refused value.
+        "retryable": (failed and not refused) or bool(pending),
     }
     _remember_supplier_readings(runtime.persisted.data, bot, results, record["at"])
     last = runtime.persisted.data.setdefault(bot, {})
@@ -358,6 +368,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             dry_run=call.data[ATTR_DRY_RUN],
             max_increase=call.data.get(ATTR_MAX_INCREASE),
             via=call.data[ATTR_VIA],
+            fallback=call.data[ATTR_FALLBACK],
         )
 
     hass.services.async_register(

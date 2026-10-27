@@ -67,6 +67,7 @@ class _BotSensor(MeterBotsEntity, SensorEntity):
             "results": record.get("results"),
             "via": record.get("via"),
             "api_error": record.get("api_error"),
+            "pending": record.get("pending"),
             "retryable": record.get("retryable"),
         }
 

@@ -36,3 +36,7 @@ submit:
             - api
             - telegram
           translation_key: via
+    fallback:
+      default: true
+      selector:
+        boolean:

@@ -116,7 +116,8 @@
         "state": {
           "ok": "OK",
           "failed": "Failed",
-          "dry_run": "Dry run"
+          "dry_run": "Dry run",
+          "pending": "Waiting for a retry"
         }
       },
       "komunalka_last_submission": {
@@ -127,7 +128,8 @@
         "state": {
           "ok": "OK",
           "failed": "Failed",
-          "dry_run": "Dry run"
+          "dry_run": "Dry run",
+          "pending": "Waiting for a retry"
         }
       }
     }
@@ -174,7 +176,11 @@
         },
         "via": {
           "name": "Way",
-          "description": "YASNO only. auto: web API, the bot if the API gives no usable answer; api or telegram: only that way."
+          "description": "auto: the suppliers' sites, the bot for what they didn't take; api or telegram: only that way."
+        },
+        "fallback": {
+          "name": "Bot as fallback now",
+          "description": "Off: a supplier's site that gave no usable answer (after two quick retries) isn't handed to the bot; its items wait for a later run (result «pending»). Suppliers without a site set up still go through the bot."
         }
       }
     }

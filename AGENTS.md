@@ -85,9 +85,11 @@ under `supplier`, and a sensor per meter appears: `sensor.<device>_yasno_{day,ni
   restart`). The user logged in by QR; the live entry id and its options are in `../AGENTS.md` (kept out of this
   public repo). Sensors are named after the entry title («Telegram <name>»):
   `sensor.telegram_<name>_{yasno,komunalka}_last_{submission,attempt}`.
-- Dry runs against the real bots pass for both (all 6 Komunalka items, YASNO with previous 15000/7514). No real
-  submission has been made by the integration yet. Schedule: `script.lichylnyky_peredaty_pokazy` + automations in
-  `../utility-meters/` (first real runs: water 2026-10-25, YASNO 2026-10-30).
+- Dry runs against the real bots pass for both (all 6 Komunalka items, YASNO with previous 15000/7514). Schedule:
+  `script.lichylnyky_peredaty_pokazy` + automations in `../utility-meters/`.
+- 2026-10-25 10:06: the first real submission. The automation sent water to Комуналка, result `ok`.
+- 2026-10-27: v0.3.0 (YASNO web API, bot as fallback) released and installed on HA through HACS. A dry run of
+  YASNO went through the API (`via: api`). The first real YASNO submission is due 2026-10-30.
 - 2026-10-20: public at https://github.com/friedpuppet/ha-meter-bots, release v0.2.0, installed on HA through HACS
   (custom repository, HACS id `1426650776`; the earlier copy is in `/config/meter_bots-copy.bak-20261020-072909.tgz`).
   **Updating**: release (bump `manifest.json` + `pyproject.toml`), then WS `hacs/repository/download` with

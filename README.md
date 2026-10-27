@@ -57,11 +57,14 @@ For `yasno`: `readings: {day: 15006, night: 7514}` (whole kWh). `via: auto` (def
 and the bot for what they didn't take: a supplier without an API set up, or whose API didn't answer usably (for
 water only that supplier's items go to the bot). `via: api` / `via: telegram` use only that way. A refusal by an
 API (e.g. a reading lower than the supplier's) doesn't go to the bot. The result has `via` (`api`, `telegram`
-or `api+telegram`) and, after a fallback, `api_error`. `komunalka` stays the name of the water submission whichever
+or `api+telegram`) and, after a fallback, `api_error`; every item in `results` has its own `via` and `supplier`
+(`yasno`, `kvk`, `kte`). `komunalka` stays the name of the water submission whichever
 way it goes; item names and the supplier sensors are the same either way.
 
 Per bot there are two sensors: *last submission* (timestamp of the last real one that went through) and
-*last attempt* (`ok` / `failed` / `dry_run`, details in the attributes). Scheduling is left to an automation.
+*last attempt* (`ok` / `failed` / `dry_run`, details in the attributes: `error`, `api_error`, `via`, `results`).
+Every failure is recorded there, also one that makes the service call itself fail (a dead Telegram session).
+Scheduling is left to an automation.
 
 ## Development
 

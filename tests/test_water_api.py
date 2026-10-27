@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from unittest.mock import patch
 
 import aiohttp
 import pytest
@@ -416,3 +417,27 @@ async def test_options_errors(hass: HomeAssistant, bots, aioclient_mock: Aiohttp
     result = await _options(hass, entry, KTE_LOGIN)
     assert result["errors"] == {"base": "kte_login_failed"}
     assert "Невірна адреса" in result["description_placeholders"]["detail"]
+
+
+async def test_each_item_says_which_way(hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker):
+    mock_kvk(aioclient_mock)
+    aioclient_mock.get(f"{kte_api.BASE}userhome_new", exc=aiohttp.ClientConnectionError("down"))
+    await setup_entry(hass, water_entry())
+    response = await _submit(hass, dry_run=True)
+    ways = {r["meter"]: (r["via"], r["supplier"]) for r in response["results"]}
+    assert ways["1000003 - ХОЛОДНА ВОДА"] == ("api", "kvk")
+    assert ways["1000001 - ВОДОВІДВЕДЕННЯ ГАРЯЧОЇ ВОДИ"] == ("api", "kvk")
+    assert ways["1000001 - ГАРЯЧА ВОДА"] == ("telegram", "kte")
+    # The sensor carries the same, for the dashboard
+    assert hass.states.get(ATTEMPT).attributes["results"] == response["results"]
+
+
+async def test_unexpected_api_failure_goes_to_the_bot(
+    hass: HomeAssistant, bots, aioclient_mock: AiohttpClientMocker
+):
+    await setup_entry(hass, make_entry(**{CONF_KVK_ACCOUNT: KVK_ACCOUNT}))
+    with patch.object(kvk_api, "kvk", side_effect=KeyError("endFactor")):
+        response = await _submit(hass, dry_run=True)
+    assert response["result"] == "dry_run"
+    assert response["via"] == "telegram"
+    assert response["api_error"] == "Київводоканал: KeyError: 'endFactor'"

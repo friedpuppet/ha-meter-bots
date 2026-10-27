@@ -192,32 +192,40 @@ async def async_submit(
     dialog: Dialog | None = None
     for_bot = everything - set(apis)
     answered = False  # some API answered (readings or a refusal)
+    auth_error: AuthError | None = None
     async with runtime.lock:
         for supplier, run in apis.items():
             name = SUPPLIER_NAMES[supplier]
             try:
-                results += await run(hass, options, readings, dry_run=dry_run, max_increase=max_increase)
+                got = await run(hass, options, readings, dry_run=dry_run, max_increase=max_increase)
+                results += [{**r, "via": VIA_API, "supplier": supplier} for r in got]
                 answered = True
             except API_REJECTED as err:
                 errors.append(f"{name}: {err}")
                 answered = True
-            except API_UNAVAILABLE as err:
-                _LOGGER.warning("%s API gave no usable answer: %s", name, err)
-                if via == VIA_API:
-                    errors.append(f"API {name}: {err}")
-                elif bot == BOT_YASNO and not options.get(CONF_YASNO_ACCOUNT):
-                    errors.append(f"API {name}: {err}; для бота не вказано особовий рахунок")
+            except Exception as err:  # API_UNAVAILABLE, or a page we failed to read: the bot may still work
+                if isinstance(err, API_UNAVAILABLE):
+                    reason = str(err)
+                    _LOGGER.warning("%s API gave no usable answer: %s", name, reason)
                 else:
-                    api_errors.append(f"{name}: {err}")
+                    reason = f"{type(err).__name__}: {err}"
+                    _LOGGER.exception("%s API failed", name)
+                if via == VIA_API:
+                    errors.append(f"API {name}: {reason}")
+                elif bot == BOT_YASNO and not options.get(CONF_YASNO_ACCOUNT):
+                    errors.append(f"API {name}: {reason}; для бота не вказано особовий рахунок")
+                else:
+                    api_errors.append(f"{name}: {reason}")
                     for_bot.add(supplier)
         if for_bot and via != VIA_API:
+            got = []
             try:
                 async with TelegramSession(
                     entry.data[CONF_SESSION], entry.data[CONF_API_ID], entry.data[CONF_API_HASH]
                 ) as tg:
                     dialog = Dialog(await tg.chat(BOT_USERNAMES[bot]))
                     if bot == BOT_YASNO:
-                        results = await scenarios.yasno(
+                        got = await scenarios.yasno(
                             dialog,
                             readings["day"],
                             readings["night"],
@@ -226,7 +234,7 @@ async def async_submit(
                             max_increase=max_increase,
                         )
                     else:
-                        results += await scenarios.komunalka(
+                        got = await scenarios.komunalka(
                             dialog,
                             readings,
                             address=options.get(CONF_KOMUNALKA_ADDRESS) or None,
@@ -236,12 +244,14 @@ async def async_submit(
                         )
             except AuthError as err:
                 entry.async_start_reauth(hass)
-                raise HomeAssistantError(f"Telegram-сесія більше не діє, увійдіть знову: {err}") from err
+                auth_error = err
+                errors.append(f"Telegram-сесія більше не діє, увійдіть знову: {err}")
             except DialogError as err:
                 errors.append(str(err))
             except Exception as err:  # Telegram/network errors: report them like a bot problem
                 _LOGGER.exception("Submitting to %s failed", bot)
                 errors.append(f"{type(err).__name__}: {err}")
+            results += [{**r, "via": VIA_TELEGRAM, "supplier": _bot_supplier(bot, r)} for r in got]
     if bot != BOT_YASNO:
         results = _unknown_serials(results, readings)
 
@@ -268,7 +278,17 @@ async def async_submit(
     runtime.notify()
     if failed:
         _LOGGER.warning("Submitting to %s: %s %s", bot, error or "", results)
+    if auth_error:
+        raise HomeAssistantError(errors[-1]) from auth_error
     return {**record, "transcript": dialog.transcript if dialog else []}
+
+
+def _bot_supplier(bot: str, result: dict[str, Any]) -> str | None:
+    if bot == BOT_YASNO:
+        return BOT_YASNO
+    if scenarios.KOMUNALKA_METER.match(result["meter"]):
+        return scenarios.komunalka_supplier(result["meter"])
+    return None
 
 
 def _remember_supplier_readings(data: dict[str, Any], bot: str, results: list[dict[str, Any]], at: str) -> None:

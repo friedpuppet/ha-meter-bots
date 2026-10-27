@@ -69,6 +69,10 @@ async def test_dead_session_starts_reauth(hass: HomeAssistant, bots):
     with pytest.raises(HomeAssistantError, match="увійдіть знову"):
         await _submit(hass, bot="komunalka", readings={"1000001": 222.0})
     await hass.async_block_till_done()
+    # The failure shows on the dashboard too, not only as the service's error
+    attempt = hass.states.get(KOMUNALKA_ATTEMPT)
+    assert attempt.state == "failed"
+    assert "увійдіть знову" in attempt.attributes["error"]
     flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert [f["context"]["source"] for f in flows] == [SOURCE_REAUTH]
 

@@ -24,6 +24,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .client import make_client
 from .const import (
@@ -35,8 +36,15 @@ from .const import (
     CONF_PHONE,
     CONF_SESSION,
     CONF_YASNO_ACCOUNT,
+    CONF_YASNO_APARTMENT,
+    CONF_YASNO_CITY,
+    CONF_YASNO_HOUSE,
+    CONF_YASNO_INTERNAL_ID,
+    CONF_YASNO_STREET,
+    DEFAULT_YASNO_CITY,
     DOMAIN,
 )
+from .yasno_api import YasnoApi, YasnoRejected, YasnoUnavailable, mask_matches
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,15 +65,16 @@ DELIVERY = {
 PASSWORD = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
 
 
+YASNO_ADDRESS = (CONF_YASNO_STREET, CONF_YASNO_HOUSE, CONF_YASNO_APARTMENT)
+
+
 def _options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    keys = (CONF_YASNO_ACCOUNT, CONF_YASNO_CITY, *YASNO_ADDRESS, CONF_KOMUNALKA_ADDRESS)
+    suggested = {CONF_YASNO_CITY: DEFAULT_YASNO_CITY, **defaults}
     return vol.Schema(
         {
-            vol.Optional(
-                CONF_YASNO_ACCOUNT, description={"suggested_value": defaults.get(CONF_YASNO_ACCOUNT)}
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_KOMUNALKA_ADDRESS, description={"suggested_value": defaults.get(CONF_KOMUNALKA_ADDRESS)}
-            ): selector.TextSelector(),
+            vol.Optional(key, description={"suggested_value": suggested.get(key)}): selector.TextSelector()
+            for key in keys
         }
     )
 
@@ -288,9 +297,54 @@ class MeterBotsConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class MeterBotsOptionsFlow(OptionsFlow):
-    """Account and address the scenarios pick in the bots."""
+    """Account and address the scenarios pick in the bots; the YASNO address gives the API's internal id."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders = {"detail": ""}
         if user_input is not None:
-            return self.async_create_entry(data={k: v.strip() for k, v in user_input.items() if v and v.strip()})
-        return self.async_show_form(step_id="init", data_schema=_options_schema(self.config_entry.options))
+            options: dict[str, Any] = {k: v.strip() for k, v in user_input.items() if v and v.strip()}
+            if any(k in options for k in YASNO_ADDRESS):
+                await self._async_yasno_internal_id(options, errors, placeholders)
+            if not errors:
+                return self.async_create_entry(data=options)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_options_schema(user_input or self.config_entry.options),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def _async_yasno_internal_id(
+        self, options: dict[str, Any], errors: dict[str, str], placeholders: dict[str, str]
+    ) -> None:
+        """Look the address up once and keep YASNO's internal id; the особовий рахунок must match its mask."""
+        old = self.config_entry.options
+        if not all(k in options for k in YASNO_ADDRESS):
+            errors["base"] = "yasno_address_incomplete"
+            return
+        if CONF_YASNO_ACCOUNT not in options:
+            errors[CONF_YASNO_ACCOUNT] = "yasno_account_required"
+            return
+        options.setdefault(CONF_YASNO_CITY, DEFAULT_YASNO_CITY)
+        lookup = (CONF_YASNO_ACCOUNT, CONF_YASNO_CITY, *YASNO_ADDRESS)
+        if old.get(CONF_YASNO_INTERNAL_ID) and all(old.get(k) == options[k] for k in lookup):
+            options[CONF_YASNO_INTERNAL_ID] = old[CONF_YASNO_INTERNAL_ID]
+            return
+        api = YasnoApi(async_get_clientsession(self.hass))
+        try:
+            found = await api.find_account(*(options[k] for k in (CONF_YASNO_CITY, *YASNO_ADDRESS)))
+        except YasnoRejected as err:
+            errors["base"] = "yasno_address_not_found"
+            placeholders["detail"] = f"\n\n{err}"
+            return
+        except YasnoUnavailable as err:
+            errors["base"] = "yasno_cannot_connect"
+            placeholders["detail"] = f"\n\n{err}"
+            return
+        masked = str(found.get("accountNumberMasked", ""))
+        if not mask_matches(masked, options[CONF_YASNO_ACCOUNT]):
+            errors[CONF_YASNO_ACCOUNT] = "yasno_account_mismatch"
+            placeholders["detail"] = f"\n\nYASNO: {masked}"
+            return
+        options[CONF_YASNO_INTERNAL_ID] = found["accountId"]

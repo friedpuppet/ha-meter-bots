@@ -10,6 +10,13 @@ CONF_CODE = "code"
 CONF_PASSWORD = "password"
 CONF_YASNO_ACCOUNT = "yasno_account"
 CONF_KOMUNALKA_ADDRESS = "komunalka_address"
+# YASNO's web API: the address is looked up once (options flow) to get YASNO's internal account id
+CONF_YASNO_CITY = "yasno_city"
+CONF_YASNO_STREET = "yasno_street"
+CONF_YASNO_HOUSE = "yasno_house"
+CONF_YASNO_APARTMENT = "yasno_apartment"
+CONF_YASNO_INTERNAL_ID = "yasno_internal_id"
+DEFAULT_YASNO_CITY = "Київ"
 
 BOT_YASNO = "yasno"
 BOT_KOMUNALKA = "komunalka"
@@ -32,6 +39,13 @@ ATTR_BOT = "bot"
 ATTR_READINGS = "readings"
 ATTR_DRY_RUN = "dry_run"
 ATTR_MAX_INCREASE = "max_increase"
+ATTR_VIA = "via"
+
+# How a submission goes: YASNO's web API first, its Telegram bot if the API gives no usable answer
+VIA_AUTO = "auto"
+VIA_API = "api"
+VIA_TELEGRAM = "telegram"
+VIAS = [VIA_AUTO, VIA_API, VIA_TELEGRAM]
 
 RESULT_OK = "ok"
 RESULT_FAILED = "failed"

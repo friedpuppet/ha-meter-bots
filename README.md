@@ -11,6 +11,9 @@ Telegram account**, the way you would by hand:
 | [@komunalkaua_bot](https://t.me/komunalkaua_bot) «Комуналка» | water: cold, hot and hot-water drainage (Київводоканал, Київтеплоенерго) |
 | [@Yasnoonlinebot](https://t.me/Yasnoonlinebot) YASNO | electricity, day and night |
 
+YASNO also has a web API that needs no login (the one yasno.ua uses). With the address set in the options it is
+the main way for YASNO, and the bot is used only if the API gives no usable answer.
+
 A bot can't talk to another bot, so the integration logs in to your account (Telethon, Telegram's client API).
 It writes only to these two chats. Every step checks the bot's answer; anything unexpected stops the run and
 nothing is confirmed blindly. Readings are also checked against the previous value the bot shows.
@@ -20,7 +23,9 @@ nothing is confirmed blindly. Readings are also checked against the previous val
 1. Submit once by hand in each bot: share your phone number, add the address / account there.
 2. Create an API id and hash at [my.telegram.org](https://my.telegram.org) → API development tools.
 3. Add the integration: API id, hash, phone, then the login code Telegram sends to your app (and the cloud
-   password, if the account has one). In the options set the YASNO account number.
+   password, if the account has one). In the options set the YASNO account number, and for the web API the
+   YASNO address (city, street, house, apartment, as on yasno.ua). The address is looked up once when you save;
+   the account it finds must match the account number.
 
 The session gives full access to the account and is stored in Home Assistant (and its backups). Revoke it any
 time in Telegram → Settings → Devices; the integration then asks you to log in again.
@@ -38,7 +43,10 @@ data:
 response_variable: result   # result, per-meter statuses, the whole conversation
 ```
 
-For `yasno`: `readings: {day: 15006, night: 7514}` (whole kWh).
+For `yasno`: `readings: {day: 15006, night: 7514}` (whole kWh). `via: auto` (default) tries the web API first
+and the bot if the API doesn't answer usably; `via: api` / `via: telegram` use only that way. A refusal by the API
+(e.g. a reading was already sent today) doesn't go to the bot. The result has `via` and, after a fallback,
+`api_error`.
 
 Per bot there are two sensors: *last submission* (timestamp of the last real one that went through) and
 *last attempt* (`ok` / `failed` / `dry_run`, details in the attributes). Scheduling is left to an automation.

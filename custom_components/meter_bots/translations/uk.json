@@ -69,15 +69,31 @@
   "options": {
     "step": {
       "init": {
+        "description": "Адреса YASNO вмикає вебAPI (швидше за бота). Порожня — лише бот.{detail}",
         "data": {
           "yasno_account": "Особовий рахунок YASNO",
+          "yasno_city": "YASNO: населений пункт",
+          "yasno_street": "YASNO: вулиця",
+          "yasno_house": "YASNO: будинок",
+          "yasno_apartment": "YASNO: квартира",
           "komunalka_address": "Адреса в «Комуналці»"
         },
         "data_description": {
           "yasno_account": "Як ви вводите його в @Yasnoonlinebot.",
+          "yasno_city": "Як на yasno.ua; якщо порожньо — Київ.",
+          "yasno_street": "Назва вулиці або її однозначна частина, без «вул.».",
+          "yasno_house": "Точно як на yasno.ua, напр. 4 або 4 А.",
+          "yasno_apartment": "З адресою покази йдуть через вебAPI YASNO, а бот лише запасний. Адреса шукається один раз при збереженні; знайдений рахунок має збігтися з особовим рахунком вище.",
           "komunalka_address": "Потрібна, лише якщо @komunalkaua_bot показує кілька адрес: частина тексту кнопки з адресою."
         }
       }
+    },
+    "error": {
+      "yasno_address_incomplete": "Заповніть вулицю, будинок і квартиру або залиште всі три порожніми.",
+      "yasno_account_required": "Потрібен, щоб перевірити рахунок, який YASNO знайде за адресою.",
+      "yasno_address_not_found": "YASNO не знайшов цю адресу.",
+      "yasno_cannot_connect": "ВебAPI YASNO не відповів. Спробуйте пізніше.",
+      "yasno_account_mismatch": "За цією адресою в YASNO інший рахунок."
     }
   },
   "entity": {
@@ -112,6 +128,13 @@
         "yasno": "YASNO (електрика)",
         "komunalka": "Комуналка (вода)"
       }
+    },
+    "via": {
+      "options": {
+        "auto": "ВебAPI, бот як запасний",
+        "api": "Лише вебAPI",
+        "telegram": "Лише Telegram-бот"
+      }
     }
   },
   "services": {
@@ -138,6 +161,10 @@
         "max_increase": {
           "name": "Найбільший приріст",
           "description": "Новий показ може перевищувати попередній показ у боті щонайбільше на стільки. Типово 3000 кВт·год (YASNO), 50 m³ (Комуналка)."
+        },
+        "via": {
+          "name": "Шлях",
+          "description": "Лише для YASNO. auto: вебAPI, бот — якщо API не дав придатної відповіді; api або telegram: лише цим шляхом."
         }
       }
     }

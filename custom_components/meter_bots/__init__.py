@@ -15,16 +15,18 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
-from . import scenarios
+from . import scenarios, yasno_api
 from .client import AuthError, TelegramSession
 from .const import (
     ATTR_BOT,
     ATTR_DRY_RUN,
     ATTR_MAX_INCREASE,
     ATTR_READINGS,
+    ATTR_VIA,
     BOT_USERNAMES,
     BOT_YASNO,
     BOTS,
@@ -33,12 +35,17 @@ from .const import (
     CONF_KOMUNALKA_ADDRESS,
     CONF_SESSION,
     CONF_YASNO_ACCOUNT,
+    CONF_YASNO_INTERNAL_ID,
     DEFAULT_MAX_INCREASE,
     DOMAIN,
     RESULT_DRY_RUN,
     RESULT_FAILED,
     RESULT_OK,
     SERVICE_SUBMIT,
+    VIA_API,
+    VIA_AUTO,
+    VIA_TELEGRAM,
+    VIAS,
 )
 from .dialog import Dialog, DialogError
 from .storage import Persisted
@@ -56,6 +63,7 @@ SUBMIT_SCHEMA = vol.Schema(
         vol.Required(ATTR_READINGS): {cv.string: vol.Coerce(float)},
         vol.Optional(ATTR_DRY_RUN, default=False): cv.boolean,
         vol.Optional(ATTR_MAX_INCREASE): vol.All(vol.Coerce(float), vol.Range(min=0)),
+        vol.Optional(ATTR_VIA, default=VIA_AUTO): vol.In(VIAS),
     }
 )
 
@@ -99,52 +107,87 @@ async def async_submit(
     *,
     dry_run: bool = False,
     max_increase: float | None = None,
+    via: str = VIA_AUTO,
 ) -> dict[str, Any]:
-    """Run one bot's scenario; record and return what happened."""
+    """Run one supplier's submission; record and return what happened.
+
+    YASNO goes through its web API when the address is set up, and through its Telegram bot only if the API gives
+    no usable answer (or ``via`` asks for the bot). A refusal by the API is final: the bot would refuse too.
+    Комуналка has only the bot.
+    """
     if max_increase is None:
         max_increase = DEFAULT_MAX_INCREASE[bot]
+    internal_id = entry.options.get(CONF_YASNO_INTERNAL_ID) if bot == BOT_YASNO else None
     if bot == BOT_YASNO:
         if set(readings) != {"day", "night"}:
             raise ServiceValidationError("Для YASNO потрібні покази day і night")
-        account = entry.options.get(CONF_YASNO_ACCOUNT)
-        if not account:
+        if via == VIA_API and not internal_id:
+            raise ServiceValidationError("Вкажіть адресу YASNO в налаштуваннях інтеграції")
+        if (via == VIA_TELEGRAM or not internal_id) and not entry.options.get(CONF_YASNO_ACCOUNT):
             raise ServiceValidationError("Вкажіть особовий рахунок YASNO в налаштуваннях інтеграції")
+    elif via == VIA_API:
+        raise ServiceValidationError("Через API передається лише YASNO")
 
     runtime = entry.runtime_data
     error: str | None = None
+    api_error: str | None = None
     results: list[dict[str, Any]] = []
     dialog: Dialog | None = None
+    used = VIA_TELEGRAM
     async with runtime.lock:
-        try:
-            async with TelegramSession(
-                entry.data[CONF_SESSION], entry.data[CONF_API_ID], entry.data[CONF_API_HASH]
-            ) as tg:
-                dialog = Dialog(await tg.chat(BOT_USERNAMES[bot]))
-                if bot == BOT_YASNO:
-                    results = await scenarios.yasno(
-                        dialog,
-                        readings["day"],
-                        readings["night"],
-                        account=str(account),
-                        dry_run=dry_run,
-                        max_increase=max_increase,
-                    )
+        if internal_id and via != VIA_TELEGRAM:
+            used = VIA_API
+            try:
+                results = await yasno_api.yasno(
+                    yasno_api.YasnoApi(async_get_clientsession(hass)),
+                    internal_id,
+                    readings["day"],
+                    readings["night"],
+                    dry_run=dry_run,
+                    max_increase=max_increase,
+                )
+            except yasno_api.YasnoRejected as err:
+                error = f"YASNO: {err}"
+            except yasno_api.YasnoUnavailable as err:
+                _LOGGER.warning("YASNO API gave no usable answer: %s", err)
+                if via == VIA_API:
+                    error = f"API YASNO: {err}"
+                elif entry.options.get(CONF_YASNO_ACCOUNT):
+                    api_error = str(err)
+                    used = VIA_TELEGRAM
                 else:
-                    results = await scenarios.komunalka(
-                        dialog,
-                        readings,
-                        address=entry.options.get(CONF_KOMUNALKA_ADDRESS) or None,
-                        dry_run=dry_run,
-                        max_increase=max_increase,
-                    )
-        except AuthError as err:
-            entry.async_start_reauth(hass)
-            raise HomeAssistantError(f"Telegram-сесія більше не діє, увійдіть знову: {err}") from err
-        except DialogError as err:
-            error = str(err)
-        except Exception as err:  # Telegram/network errors: report them like a bot problem
-            _LOGGER.exception("Submitting to %s failed", bot)
-            error = f"{type(err).__name__}: {err}"
+                    error = f"API YASNO: {err}; для бота не вказано особовий рахунок"
+        if used == VIA_TELEGRAM:
+            try:
+                async with TelegramSession(
+                    entry.data[CONF_SESSION], entry.data[CONF_API_ID], entry.data[CONF_API_HASH]
+                ) as tg:
+                    dialog = Dialog(await tg.chat(BOT_USERNAMES[bot]))
+                    if bot == BOT_YASNO:
+                        results = await scenarios.yasno(
+                            dialog,
+                            readings["day"],
+                            readings["night"],
+                            account=str(entry.options[CONF_YASNO_ACCOUNT]),
+                            dry_run=dry_run,
+                            max_increase=max_increase,
+                        )
+                    else:
+                        results = await scenarios.komunalka(
+                            dialog,
+                            readings,
+                            address=entry.options.get(CONF_KOMUNALKA_ADDRESS) or None,
+                            dry_run=dry_run,
+                            max_increase=max_increase,
+                        )
+            except AuthError as err:
+                entry.async_start_reauth(hass)
+                raise HomeAssistantError(f"Telegram-сесія більше не діє, увійдіть знову: {err}") from err
+            except DialogError as err:
+                error = str(err)
+            except Exception as err:  # Telegram/network errors: report them like a bot problem
+                _LOGGER.exception("Submitting to %s failed", bot)
+                error = f"{type(err).__name__}: {err}"
 
     failed = error is not None or any(r.get("status") in FAILED_STATUSES for r in results)
     outcome = RESULT_FAILED if failed else RESULT_DRY_RUN if dry_run else RESULT_OK
@@ -153,6 +196,8 @@ async def async_submit(
         "result": outcome,
         "error": error,
         "results": results,
+        "via": used,
+        "api_error": api_error,
     }
     _remember_supplier_readings(runtime.persisted.data, bot, results, record["at"])
     last = runtime.persisted.data.setdefault(bot, {})
@@ -194,6 +239,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             call.data[ATTR_READINGS],
             dry_run=call.data[ATTR_DRY_RUN],
             max_increase=call.data.get(ATTR_MAX_INCREASE),
+            via=call.data[ATTR_VIA],
         )
 
     hass.services.async_register(

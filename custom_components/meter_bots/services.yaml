@@ -27,3 +27,12 @@ submit:
           min: 0
           max: 100000
           mode: box
+    via:
+      default: auto
+      selector:
+        select:
+          options:
+            - auto
+            - api
+            - telegram
+          translation_key: via

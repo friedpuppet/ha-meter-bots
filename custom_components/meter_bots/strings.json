@@ -69,15 +69,31 @@
   "options": {
     "step": {
       "init": {
+        "description": "The YASNO address enables the web API (faster than the bot). Leave it empty to use only the bot.{detail}",
         "data": {
           "yasno_account": "YASNO account number",
+          "yasno_city": "YASNO: city",
+          "yasno_street": "YASNO: street",
+          "yasno_house": "YASNO: house",
+          "yasno_apartment": "YASNO: apartment",
           "komunalka_address": "Комуналка address"
         },
         "data_description": {
           "yasno_account": "Особовий рахунок, as you type it into @Yasnoonlinebot.",
+          "yasno_city": "As on yasno.ua; Київ if empty.",
+          "yasno_street": "The street name or a unique part of it, without «вул.».",
+          "yasno_house": "Exactly as on yasno.ua, e.g. 4 or 4 А.",
+          "yasno_apartment": "With the address, readings go through YASNO's web API, and the bot is only the fallback. The address is looked up once when you save; the account it finds must match the account number above.",
           "komunalka_address": "Only needed if @komunalkaua_bot lists more than one address: a part of the address button's text."
         }
       }
+    },
+    "error": {
+      "yasno_address_incomplete": "Fill in street, house and apartment, or leave all three empty.",
+      "yasno_account_required": "Needed to check the account YASNO finds at the address.",
+      "yasno_address_not_found": "YASNO didn't find this address.",
+      "yasno_cannot_connect": "YASNO's web API didn't answer. Try again later.",
+      "yasno_account_mismatch": "At this address YASNO has a different account."
     }
   },
   "entity": {
@@ -112,6 +128,13 @@
         "yasno": "YASNO (electricity)",
         "komunalka": "Комуналка (water)"
       }
+    },
+    "via": {
+      "options": {
+        "auto": "Web API, bot as fallback",
+        "api": "Web API only",
+        "telegram": "Telegram bot only"
+      }
     }
   },
   "services": {
@@ -138,6 +161,10 @@
         "max_increase": {
           "name": "Largest increase",
           "description": "A reading may exceed the bot's previous one by at most this much. Defaults: 3000 kWh (YASNO), 50 m³ (Комуналка)."
+        },
+        "via": {
+          "name": "Way",
+          "description": "YASNO only. auto: web API, the bot if the API gives no usable answer; api or telegram: only that way."
         }
       }
     }

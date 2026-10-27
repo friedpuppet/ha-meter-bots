@@ -11,8 +11,37 @@ one mirrors: layout, release, HACS via WS).
 
 ## Why bots
 
-The user rejected the suppliers' web APIs (short sessions, re-login all the time; Київводоканал's login has
+The user first rejected the suppliers' web APIs (short sessions, re-login all the time; Київводоканал's login has
 reCAPTCHA) and Portmone (YASNO stopped taking readings through payment services). Viber has no user API.
+YASNO turned out to have an anonymous web API (below), which is now the main way for YASNO; Комуналка is
+still bot-only.
+
+## YASNO web API (since 0.3.0, main way for YASNO; the bot is the fallback)
+
+Found from the user's browser HAR files (2026-10-22 logged in, 2026-10-22 and 2026-10-27 anonymous) and checked
+with curl: yasno.ua's «передати показники» works **without login, cookies or captcha**. Base
+`https://app.yasno.ua/api/account-service`, headers `x-platform: Web`, `origin: https://yasno.ua`. Paths contain
+`users/me` but need no user.
+
+- Address → YASNO's **internal account id** (a short number, not the особовий рахунок; the user's real values
+  are in `../AGENTS.md`): `GET /public/addresses/cities?query=` → `{items:[{id,value:"м. Київ  Київська обл."}]}`;
+  `GET /public/addresses/cities/{city}/streets?query=` (needs `limit=100&offset=0`, or `items` is empty);
+  `GET /public/users/me/accounts/by-address?cityId&streetId&houseNumber&apartmentNumber` →
+  `{accountId, accountNumberMasked:"10******001"}`; an unknown address is 404 `EntryNotFound`. Done **once**, in
+  the options flow; the mask is checked against the особовий рахунок and `yasno_internal_id` is stored.
+- Each submission is two requests: `GET /public/users/me/accounts/b2c/{id}/debt` (`balance`,
+  `lastMeterReadings{meteringReadings[{zone Day/Night,value}],createdOn}`, used as `previous` for
+  `check_value`) and `POST …/b2c/{id}/meter-readings` `{"meteringReadings":[{"value":D,"zone":"Day"},{…"Night"}]}`
+  → 200 `{feeId,balance,isEnrolledLater}`. A second reading the same day: 400 `application/problem+json`
+  `code ValidationError`, `detail` «На зазначену дату вже є показання». It accepted a reading on the 27th, so the
+  API doesn't enforce YASNO's end-of-month window.
+- Order in `async_submit` (`via: auto`): API; on `YasnoUnavailable` (network, timeout, 5xx, 403, HTML, odd JSON)
+  the bot, with the reason in the record's `api_error` and `via: telegram`. `YasnoRejected` (400/404 with
+  `detail`) and `check_value` refusals don't go to the bot: it would refuse too. `via: api|telegram` forces one
+  way. Without an address in the options YASNO goes through the bot as before. Known gap: a POST that went through
+  but whose answer was lost (timeout) falls back to the bot, which then hits «вже є показання» and reports failed.
+- yasno.ua itself runs Imperva bot protection (a JS token script on yasno.ua); `app.yasno.ua` didn't require it
+  as of 2026-10-27. If it starts to, the API answers 403/HTML and the bot takes over.
 
 ## Bots (from the user's chats exported 2026-10-19)
 

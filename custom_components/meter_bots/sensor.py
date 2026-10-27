@@ -61,7 +61,13 @@ class _BotSensor(MeterBotsEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         record = self._record
-        return {"at": record.get("at"), "error": record.get("error"), "results": record.get("results")}
+        return {
+            "at": record.get("at"),
+            "error": record.get("error"),
+            "results": record.get("results"),
+            "via": record.get("via"),
+            "api_error": record.get("api_error"),
+        }
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(self._runtime.async_add_listener(self._on_change))
